@@ -8,6 +8,8 @@ callers:
 - `ACTIONS_OIDC_ALLOWLIST=on`: an Actions token may download only the object ids listed in
   `_allowlist/{owner}/{repo}.txt` in the bucket, one lowercase 64-hex id per line. A missing or
   malformed list refuses every Actions download. Operator and other credentials are unaffected.
+  Whatever this setting says, an Actions token can't open an `r2-lfs/session`, and the transfer
+  tokens a batch response issues to a workflow carry its Actions identity and stay under the list.
 
 Branch `codexpublicus` carries these changes on top of an upstream release tag. `package.json`
 keeps the upstream version so `scripts/upgrade-from-upstream.sh` keeps working; releases of this
