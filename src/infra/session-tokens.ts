@@ -36,6 +36,7 @@ const EncodedClaims = v.object({
   e: v.number(),
   u: v.fallback(v.optional(v.string()), undefined),
   o: v.fallback(v.optional(v.string()), undefined),
+  a: v.fallback(v.optional(v.literal("actions")), undefined),
 });
 
 function parseClaims(json: unknown): SessionClaims | undefined {
@@ -47,6 +48,7 @@ function parseClaims(json: unknown): SessionClaims | undefined {
     expires: c.e,
     ...(c.u === undefined ? {} : { login: c.u }),
     ...(c.o === undefined ? {} : { oid: c.o }),
+    ...(c.a === undefined ? {} : { principal: c.a }),
   };
 }
 
@@ -83,6 +85,7 @@ export class HmacSessionTokens implements SessionTokens {
       e: claims.expires,
       ...(claims.login ? { u: claims.login } : {}),
       ...(claims.oid ? { o: claims.oid } : {}),
+      ...(claims.principal ? { a: claims.principal } : {}),
     };
     const payload = base64url(encoder.encode(JSON.stringify(body)));
     const signature = await crypto.subtle.sign("HMAC", await this.key(), encoder.encode(payload));

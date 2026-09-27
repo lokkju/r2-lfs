@@ -29,6 +29,8 @@ export interface ConfigVars {
   ACTIONS_OIDC_AUDIENCE?: string;
   /** Comma-separated ref patterns, `*` allowed within a pattern, that an Actions token's `ref` claim must match. */
   ACTIONS_OIDC_REFS?: string;
+  /** "on" limits Actions downloads to the oids in `_allowlist/{owner}/{repo}.txt`. */
+  ACTIONS_OIDC_ALLOWLIST?: string;
   /** A Cloudflare API token with Account Analytics Read, for the admin UI's activity page. */
   ANALYTICS_API_TOKEN?: string;
   /** Comma-separated emails, `*` for any characters, who may change things in the admin UI; unset lets everyone. */
@@ -67,6 +69,8 @@ export interface ActionsOidcSettings {
   audience: string;
   /** Ref patterns, `*` allowed within a pattern; empty allows any ref. */
   refs: readonly string[];
+  /** Whether Actions downloads are limited to the repository's allow list. */
+  allowlist: boolean;
 }
 
 /** Which Git host's permissions to mirror, by its web origin, such as https://gitlab.example.com. */
@@ -260,6 +264,7 @@ export function parseConfig(vars: ConfigVars): Config {
   const actionsMode = oneOf("ACTIONS_OIDC", vars.ACTIONS_OIDC, ["off", "read", "write", "admin"], "off", problems);
   const actionsAudience = value(vars.ACTIONS_OIDC_AUDIENCE) ?? "r2-lfs";
   const actionsRefs = listOf(vars.ACTIONS_OIDC_REFS);
+  const actionsAllowlist = oneOf("ACTIONS_OIDC_ALLOWLIST", vars.ACTIONS_OIDC_ALLOWLIST, ["off", "on"], "off", problems) === "on";
   for (const pattern of actionsRefs) {
     if (!pattern.startsWith("refs/")) problems.push(`ACTIONS_OIDC_REFS entry "${pattern}" must start with refs/`);
   }
@@ -306,7 +311,10 @@ export function parseConfig(vars: ConfigVars): Config {
     warnings,
     access: teamDomain && aud ? { teamDomain: teamDomain.toLowerCase(), aud } : undefined,
     analytics: analyticsToken && accountId ? { accountId, apiToken: analyticsToken } : undefined,
-    actionsOidc: actionsMode === "off" ? undefined : { permission: actionsMode, audience: actionsAudience, refs: actionsRefs },
+    actionsOidc:
+      actionsMode === "off"
+        ? undefined
+        : { permission: actionsMode, audience: actionsAudience, refs: actionsRefs, allowlist: actionsAllowlist },
     adminEmails,
   };
 }

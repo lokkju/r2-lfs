@@ -11,6 +11,7 @@ import { GithubActionsOidc } from "../infra/actions-oidc.ts";
 import { AnalyticsEngineMetrics } from "../infra/analytics-metrics.ts";
 import { type Fetcher, RemoteHostPermissions } from "../infra/host-permissions.ts";
 import { looksLikeJwt } from "../infra/jwt.ts";
+import { R2CiAllowlist } from "../infra/r2-ci-allowlist.ts";
 import { R2MultipartStore } from "../infra/r2-multipart-store.ts";
 import { R2ObjectStore } from "../infra/r2-object-store.ts";
 import { R2RepositoryIdentities } from "../infra/r2-repository-identities.ts";
@@ -137,7 +138,7 @@ async function handleRepository(request: Request, env: Env, deps: Deps, url: URL
   if (!allowsMethod(matched, request.method)) return lfsError(405, "Method not allowed");
 
   const baseUrl = `${url.origin}/${repo.owner}/${repo.name}`;
-  const authorizeAction = actionAuthorization({ repo, sessions });
+  const authorizeAction = actionAuthorization({ repo, sessions, ...(auth.principal ? { principal: auth.principal } : {}) });
   const ctx: lfs.LfsContext = {
     config,
     repo,
@@ -146,6 +147,7 @@ async function handleRepository(request: Request, env: Env, deps: Deps, url: URL
     links: config.presign ? new PresignedLinks(config.presign, baseUrl, authorizeAction) : new ProxyLinks(baseUrl, authorizeAction),
     copier: config.presign ? new S3Copier(config.presign, deps.fetch) : undefined,
     ...(auth.oid === undefined ? {} : { onlyOid: auth.oid }),
+    ...(auth.principal === "actions" && config.actionsOidc?.allowlist ? { ciAllowlist: new R2CiAllowlist(env.BUCKET) } : {}),
   };
 
   const parts: multipart.MultipartContext = { ...ctx, multipart: new R2MultipartStore(env.BUCKET, config.encryptionKey) };
@@ -166,7 +168,13 @@ async function handleRepository(request: Request, env: Env, deps: Deps, url: URL
       return toResponse(await changeObjects(storage, matched.action, await readJson(request)), (body) => lfsJson(200, body));
     }
     case "session": {
-      const session = { repo, permission: auth.permission, identify: auth.identify, sessions };
+      const session = {
+        repo,
+        permission: auth.permission,
+        identify: auth.identify,
+        sessions,
+        ...(auth.principal ? { principal: auth.principal } : {}),
+      };
       return toResponse(await openSession(session, credentials), (body) => lfsJson(200, body));
     }
     case "locks":

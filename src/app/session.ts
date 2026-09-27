@@ -9,6 +9,8 @@ export interface SessionContext {
   permission: Permission;
   identify: () => Promise<string | undefined>;
   sessions: SessionTokens;
+  /** Set for a GitHub Actions caller; its tokens carry it so they keep the caller's limits. */
+  principal?: "actions";
   /** Milliseconds since the epoch; tests fix it. */
   now?: () => number;
 }
@@ -28,9 +30,12 @@ export function checkTransferScope(tokenOid: string | undefined, scope: Transfer
 }
 
 /** Makes the Authorization header of a transfer action: a short-lived token for that object's transfer alone. */
-export function actionAuthorization(ctx: Pick<SessionContext, "repo" | "sessions" | "now">) {
-  return async (oid: string, permission: "read" | "write"): Promise<string> =>
-    `Bearer ${await ctx.sessions.mint({ repo: repoKey(ctx.repo), permission, oid, expires: nowSeconds(ctx) + ACTION_TTL_SECONDS })}`;
+export function actionAuthorization(ctx: Pick<SessionContext, "repo" | "sessions" | "principal" | "now">) {
+  return async (oid: string, permission: "read" | "write"): Promise<string> => {
+    const expires = nowSeconds(ctx) + ACTION_TTL_SECONDS;
+    const principal = ctx.principal ? { principal: ctx.principal } : {};
+    return `Bearer ${await ctx.sessions.mint({ repo: repoKey(ctx.repo), permission, oid, expires, ...principal })}`;
+  };
 }
 
 /** POST <repository>/r2-lfs/session: trades Git host credentials for a short-lived token with the same permission. */
@@ -39,6 +44,8 @@ export async function openSession(ctx: SessionContext, presented: Credentials | 
   if (presented?.password.startsWith(SESSION_TOKEN_PREFIX)) {
     return { ok: false, status: 403, message: "Send Git host credentials, not an r2-lfs token" };
   }
+  // A session would outlive the workflow's own short-lived token; workflows send that token with each request instead.
+  if (ctx.principal === "actions") return { ok: false, status: 403, message: "GitHub Actions tokens cannot open sessions" };
   const { permission } = ctx;
   if (permission === "none") return { ok: false, status: 403, message: "You do not have read access to this repository" };
   const expires = nowSeconds(ctx) + SESSION_TTL_SECONDS;

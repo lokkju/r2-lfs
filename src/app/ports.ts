@@ -68,6 +68,11 @@ export interface MultipartStore {
   promote(source: string, target: string, sha256: string, size: number): Promise<"stored" | "checksum-mismatch">;
 }
 
+/** Which objects a GitHub Actions workflow may download from a repository. */
+export interface CiAllowlist {
+  allows(repo: Repo, oid: string): Promise<boolean>;
+}
+
 /** Grants whose secret equals the presented token. */
 export interface TokenDirectory {
   grantsFor(token: string): Promise<Grant[]>;
@@ -90,6 +95,7 @@ export type Authorization =
       identify: () => Promise<string | undefined>;
       /** Set for a token a batch response issued for one object's transfer, which covers nothing else. */
       oid?: string;
+      /** A GitHub Actions workflow, directly or through a token minted for one. */
       principal?: "actions";
     }
   | { ok: false; status: 401 | 403 | 404 | 502 | 503; message: string };
@@ -160,6 +166,8 @@ export interface SessionClaims {
   login?: string;
   /** Limits the token to transferring this object. */
   oid?: string;
+  /** Minted for a GitHub Actions caller, so the token keeps that caller's limits. */
+  principal?: "actions";
 }
 
 /** Short-lived tokens the Worker signs, so clients and transfer actions do not carry a Git host's token around. */

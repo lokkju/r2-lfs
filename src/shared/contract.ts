@@ -285,6 +285,12 @@ export function incomingKey(owner: string, repo: string, oid: string): string {
   return `${INCOMING_PREFIX}${owner.toLowerCase()}/${repo.toLowerCase()}/${oid}`;
 }
 
+export const ALLOWLIST_PREFIX = "_allowlist/";
+/** The object ids GitHub Actions may download from a repository, written by the operator. */
+export function ciAllowlistKey(owner: string, repo: string): string {
+  return `${ALLOWLIST_PREFIX}${owner.toLowerCase()}/${repo.toLowerCase()}.txt`;
+}
+
 /** Where the id of the repository that owns a name is recorded. */
 export function repositoryIdKey(owner: string, repo: string): string {
   return `${REPOS_PREFIX}${owner.toLowerCase()}/${repo.toLowerCase()}`;

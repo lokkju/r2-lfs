@@ -14,7 +14,7 @@ import type { Config } from "../domain/config.ts";
 import { parseRange } from "../domain/range.ts";
 import { objectKey, type Repo } from "../domain/repo.ts";
 import { type BatchObjectResult, type BatchResponse, incomingKey, memberKey, MULTIPART_TRANSFER, repoPrefix } from "../shared/contract.ts";
-import type { ObjectCopier, ObjectStore, TransferLinks } from "./ports.ts";
+import type { CiAllowlist, ObjectCopier, ObjectStore, TransferLinks } from "./ports.ts";
 
 export type Result<T> = { ok: true; value: T } | ({ ok: false } & Rejection);
 
@@ -30,6 +30,8 @@ export interface LfsContext {
   copier: ObjectCopier | undefined;
   /** Set when the request carries a transfer action's token, which covers this object alone. */
   onlyOid?: string;
+  /** Set for GitHub Actions callers when ACTIONS_OIDC_ALLOWLIST is on: downloads are limited to its oids. */
+  ciAllowlist?: CiAllowlist;
 }
 
 const shared = (ctx: LfsContext) => ctx.config.storageLayout === "shared";
@@ -42,6 +44,12 @@ const staged = (ctx: LfsContext) => ctx.links.presigned && ctx.config.verifyUplo
 /** In the shared layout, only repositories that uploaded an object may read it. */
 async function isMember(ctx: LfsContext, oid: string): Promise<boolean> {
   return !shared(ctx) || (await ctx.store.head(markerKey(ctx, oid))) !== null;
+}
+
+const CI_REFUSED = "This object is not on the repository's allow list for GitHub Actions";
+
+async function ciMayRead(ctx: LfsContext, oid: string): Promise<boolean> {
+  return ctx.ciAllowlist === undefined || (await ctx.ciAllowlist.allows(ctx.repo, oid));
 }
 
 function denied(required: Permission): Result<never> {
@@ -60,6 +68,7 @@ async function planObject(
   const stored = await ctx.store.head(key);
 
   if (operation === "download") {
+    if (!(await ciMayRead(ctx, object.oid))) return { ...object, error: { code: 403, message: CI_REFUSED } };
     if (!stored || !(await isMember(ctx, object.oid))) return { ...object, error: { code: 404, message: "Object does not exist" } };
     return { oid: object.oid, size: stored.size, authenticated: true, actions: { download: await ctx.links.download(key, object.oid) } };
   }
@@ -168,6 +177,7 @@ export interface Download {
 
 export async function download(ctx: LfsContext, oid: string, rangeHeader: string | null = null): Promise<Result<Download>> {
   if (!hasPermission(ctx.permission, "read")) return denied("read");
+  if (!(await ciMayRead(ctx, oid))) return reject(403, CI_REFUSED);
   const key = liveKey(ctx, oid);
   const stored = (await isMember(ctx, oid)) ? await ctx.store.head(key) : null;
   if (!stored) return reject(404, "Object does not exist");

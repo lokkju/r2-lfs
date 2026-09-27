@@ -47,7 +47,13 @@ export async function authorize(
     if (claims.repo !== `${repo.owner}/${repo.name}`.toLowerCase()) {
       return { ok: false, status: 404, message: `This token was issued for ${claims.repo}` };
     }
-    return { ok: true, permission: claims.permission, identify: async () => claims.login, ...(claims.oid ? { oid: claims.oid } : {}) };
+    return {
+      ok: true,
+      permission: claims.permission,
+      identify: async () => claims.login,
+      ...(claims.oid ? { oid: claims.oid } : {}),
+      ...(claims.principal ? { principal: claims.principal } : {}),
+    };
   }
   if (config.actionsOidc && deps.isJwt(token)) {
     const claims = await deps.actions.verify(token, config.actionsOidc.audience);
