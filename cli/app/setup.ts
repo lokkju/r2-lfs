@@ -106,6 +106,7 @@ export function workerConfig(opts: SetupOptions): Record<string, unknown> {
       ADMIN_EMAILS: "",
       ACTIONS_OIDC: opts.actionsOidc ?? "off",
       ACTIONS_OIDC_AUDIENCE: "r2-lfs",
+      ACTIONS_OIDC_REFS: "",
       VERIFY_UPLOADS: "on",
     },
   };

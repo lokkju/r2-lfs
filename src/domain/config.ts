@@ -27,6 +27,8 @@ export interface ConfigVars {
   ACTIONS_OIDC?: string;
   VERIFY_UPLOADS?: string;
   ACTIONS_OIDC_AUDIENCE?: string;
+  /** Comma-separated ref patterns, `*` allowed within a pattern, that an Actions token's `ref` claim must match. */
+  ACTIONS_OIDC_REFS?: string;
   /** A Cloudflare API token with Account Analytics Read, for the admin UI's activity page. */
   ANALYTICS_API_TOKEN?: string;
   /** Comma-separated emails, `*` for any characters, who may change things in the admin UI; unset lets everyone. */
@@ -63,6 +65,8 @@ export interface ActionsOidcSettings {
   permission: GrantedPermission;
   /** The `aud` workflows request the token for. */
   audience: string;
+  /** Ref patterns, `*` allowed within a pattern; empty allows any ref. */
+  refs: readonly string[];
 }
 
 /** Which Git host's permissions to mirror, by its web origin, such as https://gitlab.example.com. */
@@ -255,6 +259,10 @@ export function parseConfig(vars: ConfigVars): Config {
   const verifyUploads = oneOf("VERIFY_UPLOADS", vars.VERIFY_UPLOADS, ["on", "off"], "on", problems) === "on";
   const actionsMode = oneOf("ACTIONS_OIDC", vars.ACTIONS_OIDC, ["off", "read", "write", "admin"], "off", problems);
   const actionsAudience = value(vars.ACTIONS_OIDC_AUDIENCE) ?? "r2-lfs";
+  const actionsRefs = listOf(vars.ACTIONS_OIDC_REFS);
+  for (const pattern of actionsRefs) {
+    if (!pattern.startsWith("refs/")) problems.push(`ACTIONS_OIDC_REFS entry "${pattern}" must start with refs/`);
+  }
 
   const teamDomain = value(vars.ACCESS_TEAM_DOMAIN)
     ?.replace(/^https:\/\//, "")
@@ -298,7 +306,7 @@ export function parseConfig(vars: ConfigVars): Config {
     warnings,
     access: teamDomain && aud ? { teamDomain: teamDomain.toLowerCase(), aud } : undefined,
     analytics: analyticsToken && accountId ? { accountId, apiToken: analyticsToken } : undefined,
-    actionsOidc: actionsMode === "off" ? undefined : { permission: actionsMode, audience: actionsAudience },
+    actionsOidc: actionsMode === "off" ? undefined : { permission: actionsMode, audience: actionsAudience, refs: actionsRefs },
     adminEmails,
   };
 }

@@ -90,6 +90,7 @@ export type Authorization =
       identify: () => Promise<string | undefined>;
       /** Set for a token a batch response issued for one object's transfer, which covers nothing else. */
       oid?: string;
+      principal?: "actions";
     }
   | { ok: false; status: 401 | 403 | 404 | 502 | 503; message: string };
 
@@ -110,6 +111,8 @@ export interface ActionsClaims {
   repositoryId: string | undefined;
   actor: string;
   workflow: string | undefined;
+  /** The `ref` claim, such as `refs/heads/main` or `refs/pull/7/merge`. */
+  ref: string | undefined;
 }
 
 /** Checks a GitHub Actions OIDC token: signature, issuer, audience and lifetime. */

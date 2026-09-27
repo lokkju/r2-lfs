@@ -53,6 +53,8 @@
     "ACTIONS_OIDC": "off",
     // The audience workflows request the token for.
     "ACTIONS_OIDC_AUDIENCE": "r2-lfs",
+    // Comma-separated ref patterns (e.g. "refs/heads/*,refs/pull/*/merge") an Actions token's ref must match. Empty allows any ref.
+    "ACTIONS_OIDC_REFS": "",
     // "on" | "off": hash presigned uploads before they count as stored. Turn off on the Free plan (CPU time).
     "VERIFY_UPLOADS": "on",
   },

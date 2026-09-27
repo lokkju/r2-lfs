@@ -1,5 +1,6 @@
 import { repoAllowed, strongestGrant } from "../domain/access.ts";
 import type { Config } from "../domain/config.ts";
+import { refAllowed } from "../domain/refs.ts";
 import { isSafeRepoName, type Repo } from "../domain/repo.ts";
 import { repositoryIdKey, SESSION_TOKEN_PREFIX } from "../shared/contract.ts";
 import type {
@@ -60,10 +61,22 @@ export async function authorize(
     if (claims.repository.toLowerCase() !== `${repo.owner}/${repo.name}`.toLowerCase()) {
       return { ok: false, status: 404, message: `A GitHub Actions token from ${claims.repository} cannot use this repository` };
     }
+    if (!refAllowed(config.actionsOidc.refs, claims.ref)) {
+      return {
+        ok: false,
+        status: 403,
+        message: `A GitHub Actions token from ${claims.ref ?? "an unknown ref"} cannot use this repository`,
+      };
+    }
     if (claims.repositoryId !== undefined && !(await deps.identities.claim(repo, claims.repositoryId))) {
       return { ok: false, status: 403, message: REUSED_NAME(repo) };
     }
-    return { ok: true, permission: config.actionsOidc.permission, identify: async () => `${claims.actor} (GitHub Actions)` };
+    return {
+      ok: true,
+      permission: config.actionsOidc.permission,
+      identify: async () => `${claims.actor} (GitHub Actions)`,
+      principal: "actions",
+    };
   }
   if (config.authMode !== "token") {
     const lookup = await deps.host.lookup(repo, credentials);
