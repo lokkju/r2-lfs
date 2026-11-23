@@ -6,22 +6,58 @@ import { ACTION_TTL_SECONDS } from "../shared/contract.ts";
 
 export const PRESIGN_EXPIRES_SECONDS = 3600;
 
+/**
+ * One AwsClient per credential pair for the life of the isolate. aws4fetch caches the SigV4
+ * signing key on the client, so a shared client derives it once a day instead of with four
+ * HMACs on every URL. A batch presigns up to 100 URLs at once, and deriving the key for each
+ * one cost five times the HMACs, enough CPU to put a batch at risk of the Worker's CPU limit,
+ * which Cloudflare answers with a 503.
+ */
+interface PresignClient {
+  client: AwsClient;
+  /** The UTC day (YYYYMMDD) whose signing key `ready` derives or derived. */
+  day: string;
+  /** The day's first signature. aws4fetch caches the key only once it resolves, so concurrent signatures wait for it. */
+  ready: Promise<unknown>;
+}
+
+const clients = new Map<string, PresignClient>();
+
+/** For tests: forget every cached client and signing key. */
+export function clearPresignClients(): void {
+  clients.clear();
+}
+
 export async function presignUrl(
   creds: PresignCredentials,
   key: string,
   method: "GET" | "PUT",
   expiresIn = PRESIGN_EXPIRES_SECONDS,
 ): Promise<string> {
-  const client = new AwsClient({
-    accessKeyId: creds.accessKeyId,
-    secretAccessKey: creds.secretAccessKey,
-    service: "s3",
-    region: "auto",
-  });
   const url = new URL(`https://${creds.accountId}.r2.cloudflarestorage.com/${creds.bucketName}/${key}`);
   url.searchParams.set("X-Amz-Expires", String(expiresIn));
-  const signed = await client.sign(new Request(url, { method }), { aws: { signQuery: true } });
-  return signed.url;
+  const day = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  const id = `${creds.accessKeyId}\n${creds.secretAccessKey}`;
+  const entry = clients.get(id);
+  if (entry?.day !== day) {
+    const client =
+      entry?.client ??
+      new AwsClient({ accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey, service: "s3", region: "auto" });
+    const signed = sign(client, url, method);
+    const fresh: PresignClient = { client, day, ready: signed };
+    clients.set(id, fresh);
+    // A failed first signature must not leave every later one waiting on it.
+    signed.catch(() => {
+      if (clients.get(id) === fresh) clients.delete(id);
+    });
+    return (await signed).url;
+  }
+  await entry.ready.catch(() => undefined);
+  return (await sign(entry.client, url, method)).url;
+}
+
+function sign(client: AwsClient, url: URL, method: "GET" | "PUT"): Promise<Request> {
+  return client.sign(new Request(url, { method }), { aws: { signQuery: true } });
 }
 
 /** Makes the Authorization header of an action: a token for this object's transfer only. */

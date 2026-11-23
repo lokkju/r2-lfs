@@ -2,11 +2,12 @@ import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { parseAllowlist } from "../../src/domain/allowlist.ts";
+import type { Repo } from "../../src/domain/repo.ts";
 import type { Env } from "../../src/env.ts";
 import { handle } from "../../src/http/handler.ts";
 import { clearHostCache, type Fetcher } from "../../src/infra/host-permissions.ts";
 import { clearJwtKeysCache } from "../../src/infra/jwt.ts";
-import { clearCiAllowlistCache } from "../../src/infra/r2-ci-allowlist.ts";
+import { clearCiAllowlistCache, R2CiAllowlist } from "../../src/infra/r2-ci-allowlist.ts";
 import { clearRepositoryIdentitiesCache } from "../../src/infra/r2-repository-identities.ts";
 import { HmacSessionTokens } from "../../src/infra/session-tokens.ts";
 import { basic, blob, envWith } from "./helpers.ts";
@@ -228,5 +229,40 @@ describe("tokens an Actions caller can obtain", () => {
     await s.setList("");
     clearCiAllowlistCache();
     expect((await fetchAction()).status).toBe(403);
+  });
+});
+
+describe("R2CiAllowlist", () => {
+  it("reads the list once for a batch's concurrent checks after the cache expires", async () => {
+    const a = "a".repeat(64);
+    let gets = 0;
+    const bucket = {
+      get: async (key: string) => {
+        gets++;
+        return env.BUCKET.get(key);
+      },
+    } as unknown as R2Bucket;
+    await env.BUCKET.put("_allowlist/acme/concurrent.txt", `${a}\n`);
+    const list = new R2CiAllowlist(bucket);
+    const repo = { owner: "acme", name: "concurrent" } as Repo;
+    const results = await Promise.all(Array.from({ length: 100 }, (_, i) => list.allows(repo, i === 0 ? a : "b".repeat(64))));
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(gets).toBe(1);
+  });
+
+  it("reads the list again after a failed read", async () => {
+    let gets = 0;
+    const bucket = {
+      get: async () => {
+        gets++;
+        if (gets === 1) throw new Error("R2 unavailable");
+        return null;
+      },
+    } as unknown as R2Bucket;
+    const list = new R2CiAllowlist(bucket);
+    const repo = { owner: "acme", name: "flaky" } as Repo;
+    await expect(list.allows(repo, "a".repeat(64))).rejects.toThrow("R2 unavailable");
+    expect(await list.allows(repo, "a".repeat(64))).toBe(false);
+    expect(gets).toBe(2);
   });
 });
